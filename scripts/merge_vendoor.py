@@ -1,4 +1,4 @@
-"""Add Vendoor-vs-Shopify color matching to the Styllano color workbook.
+"""Add Vendoor-vs-Shopify color matching to the color-system workbook.
 
 Usage: python merge_vendoor.py <workbook with Vendoor column filled> <output.xlsx>
 Reads Products!I (Vendoor color, Arabic, as copied from Vendoor), maps it to the
@@ -21,7 +21,7 @@ def v(std, *terms, review=False, note=''):
     for t in terms: V[t] = (std, review, note)
 v('Black', 'اسود', 'سوداء', 'اسود ناعم'); v('Black', 'اسود فرنيه', review=True, note='فرنيه = تشطيب لامع، مش لون')
 v('White', 'ابيض', 'بيضاء'); v('Off White', 'اوف وايت')
-v('Gray', 'رمادي'); v('Gray', 'رصاصي', review=True, note='Vendoor بيستخدم رمادي ورصاصي الاتنين — 17 من 19 في شوبيفاي Gray')
+v('Gray', 'رمادي'); v('Gray', 'رصاصي', review=True, note='Vendoor بيستخدم رمادي ورصاصي الاتنين — 21 من 23 في شوبيفاي Gray/Grey و 2 Dark Gray')
 v('Gray', 'حديدي', review=True, note='حديدي غالباً أغمق — ممكن Dark Gray')
 v('Dark Gray', 'رمادي غامق', 'رصاصي غامق'); v('Light Gray', 'رمادي فاتح', 'رصاصي فاتح')
 v('Heather Gray', 'رمادي شانيه', review=True, note='شانيه = chiné/melange — في شوبيفاي مكتوب Shania')

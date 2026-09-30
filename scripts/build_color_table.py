@@ -1,13 +1,18 @@
-"""Build the Styllano color-system workbook from Shopify's public products.json dump."""
+"""Build the color-system workbook from a Shopify products.json dump.
+
+Usage: python build_color_table.py <all.json> <out.xlsx> <store-handle>
+store-handle is the part after /store/ in the admin URL (e.g. styllano).
+"""
 import json, re, sys, collections
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
 SRC = sys.argv[1] if len(sys.argv) > 1 else 'all.json'
-OUT = sys.argv[2] if len(sys.argv) > 2 else 'styllano_colors.xlsx'
+OUT = sys.argv[2] if len(sys.argv) > 2 else 'colors.xlsx'
+STORE = sys.argv[3] if len(sys.argv) > 3 else 'styllano'
 COLOR_OPTS = {'Color', 'Colors', 'color', 'ColorB', 'الالوان'}
-ADMIN = 'https://admin.shopify.com/store/styllano/products/'
+ADMIN = f'https://admin.shopify.com/store/{STORE}/products/'
 
 # raw (lowercase) -> (standard name, reason). reason: ok | spelling | arabic | synonym | review
 S = {}
@@ -210,7 +215,7 @@ ws4.cell(ws4.max_row, 1).font = Font(name=F, size=10, italic=True)
 # Legend sheet
 ws0 = wb.create_sheet('اقرأني', 0)
 lines = [
-    ('Styllano — Color System', True),
+    (f'{STORE.title()} — Color System', True),
     (f'اتسحب من شوبيفاي (products.json): {len(prods)} منتج، {len(rows)} صف لون، {len(raw_info)} قيمة لون مختلفة ← {len([s for s in order if kind(s)==1])} لون موحد + {len([s for s in order if kind(s)==2])} لون مزدوج.', False),
     ('', False),
     ('Standard Colors: كل لون موحد مرة واحدة، وجنبه كل الأسماء اللي متكتب بيها حالياً. ده الجدول الأساسي.', False),
@@ -228,7 +233,7 @@ lines = [
 ws0.column_dimensions['A'].width = 130
 for t, b in lines:
     ws0.append([t]); c = ws0.cell(ws0.max_row, 1)
-    c.font = Font(name=F, size=14 if t.startswith('Styllano') else 10, bold=b); c.alignment = Alignment(wrap_text=True)
+    c.font = Font(name=F, size=14 if t.endswith('Color System') else 10, bold=b); c.alignment = Alignment(wrap_text=True)
 
 wb.calculation.fullCalcOnLoad = True
 wb.save(OUT)
