@@ -47,8 +47,11 @@ case "$tool" in
 
     fields="$(jq -c '.tool_input.fields | if type == "string" then fromjson else . end' <<<"$input" 2>/dev/null)" \
       || deny "Meta guard: fields is not valid JSON."
-    extra="$(jq -r 'keys - ["daily_budget", "status"] | join(",")' <<<"$fields")"
-    [[ -z "$extra" ]] || deny "Meta guard: only daily_budget and status may change (got: $extra)."
+    allowed='["daily_budget", "status"]'
+    # Test ad sets may also have their start time moved.
+    [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$TEST_ADSET_IDS" && allowed='["daily_budget", "status", "start_time"]'
+    extra="$(jq -r --argjson allowed "$allowed" 'keys - $allowed | join(",")' <<<"$fields")"
+    [[ -z "$extra" ]] || deny "Meta guard: only $allowed may change (got: $extra)."
 
     status="$(jq -r '.status // ""' <<<"$fields")"
     [[ -z "$status" || "$status" == "PAUSED" ]] \
