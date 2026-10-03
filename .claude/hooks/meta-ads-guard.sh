@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
-# Guard for the Pump & Punish campaign: Meta Ads write tools are pre-approved in
-# .claude/settings.json so the scheduled checks can run unattended. This hook
-# narrows that approval to the one campaign and to budget/status changes only.
+# Guard for the managed Meta Ads campaigns: Meta Ads write tools are pre-approved
+# in .claude/settings.json so the scheduled checks can run unattended. This hook
+# narrows that approval to the managed objects and to budget/status changes only.
 set -euo pipefail
 
+# Pump & Punish: CBO, so only the campaign budget moves.
 CAMPAIGN_ID="120249758271140590"
-# Campaign, its ad set and its four ads: the only objects that may be activated.
-ACTIVATABLE_IDS="120249758271140590 120249758274010590 120249758275290590 120249758275550590 120249758275710590 120249758276000590"
 MIN_BUDGET=100000     # 1,000 EGP in piasters
 MAX_BUDGET=10000000   # 100,000 EGP in piasters
+
+# Creative test: ABO, so the three ad set budgets move, within a tighter cap.
+TEST_ADSET_IDS="120249762318740590 120249762319330590 120249762320090590"
+TEST_MIN_BUDGET=40000    # 400 EGP
+TEST_MAX_BUDGET=200000   # 2,000 EGP
+# Test campaign objects that may only be paused (the three ads).
+TEST_PAUSABLE_IDS="120249762322260590 120249762322490590 120249762322660590"
+
+# Objects of both campaigns: the only ones that may be activated.
+ACTIVATABLE_IDS="120249758271140590 120249758274010590 120249758275290590 120249758275550590 120249758275710590 120249758276000590 120249762316840590 $TEST_ADSET_IDS $TEST_PAUSABLE_IDS"
 
 input="$(cat)"
 tool="$(jq -r '.tool_name // ""' <<<"$input")"
@@ -18,12 +27,21 @@ deny() {
   exit 0
 }
 
+in_list() { [[ " $2 " == *" $1 "* ]]; }
+
 case "$tool" in
   mcp__Meta_Ads__ads_update_entity)
     entity_id="$(jq -r '.tool_input.entity_id // ""' <<<"$input")"
     entity_type="$(jq -r '.tool_input.entity_type // ""' <<<"$input")"
-    [[ "$entity_id" == "$CAMPAIGN_ID" && "$entity_type" == "campaign" ]] \
-      || deny "Meta guard: updates are allowed only on campaign $CAMPAIGN_ID."
+    if [[ "$entity_id" == "$CAMPAIGN_ID" && "$entity_type" == "campaign" ]]; then
+      min=$MIN_BUDGET; max=$MAX_BUDGET; budget_allowed=1
+    elif [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$TEST_ADSET_IDS"; then
+      min=$TEST_MIN_BUDGET; max=$TEST_MAX_BUDGET; budget_allowed=1
+    elif [[ "$entity_type" == "ad" ]] && in_list "$entity_id" "$TEST_PAUSABLE_IDS"; then
+      budget_allowed=0
+    else
+      deny "Meta guard: updates are allowed only on the managed Pump & Punish and creative-test objects."
+    fi
 
     fields="$(jq -c '.tool_input.fields | if type == "string" then fromjson else . end' <<<"$input" 2>/dev/null)" \
       || deny "Meta guard: fields is not valid JSON."
@@ -35,17 +53,18 @@ case "$tool" in
       || deny "Meta guard: status may only be set to PAUSED (got: $status)."
 
     if jq -e 'has("daily_budget")' <<<"$fields" >/dev/null; then
+      (( budget_allowed )) || deny "Meta guard: ads have no budget to change."
       budget="$(jq -r '.daily_budget' <<<"$fields")"
       [[ "$budget" =~ ^[0-9]+$ ]] || deny "Meta guard: daily_budget must be an integer in piasters."
-      (( budget >= MIN_BUDGET && budget <= MAX_BUDGET )) \
-        || deny "Meta guard: daily_budget $budget is outside $MIN_BUDGET..$MAX_BUDGET."
+      (( budget >= min && budget <= max )) \
+        || deny "Meta guard: daily_budget $budget is outside $min..$max for $entity_id."
     fi
     ;;
   mcp__Meta_Ads__ads_activate_entity)
     ids="$(jq -r '[.tool_input.entity_id] + (.tool_input.object_ids // []) | map(select(. != null)) | .[]' <<<"$input")"
     for id in $ids; do
-      [[ " $ACTIVATABLE_IDS " == *" $id "* ]] \
-        || deny "Meta guard: activation is allowed only for the Pump & Punish campaign objects (got: $id)."
+      in_list "$id" "$ACTIVATABLE_IDS" \
+        || deny "Meta guard: activation is allowed only for the managed campaign objects (got: $id)."
     done
     ;;
 esac
