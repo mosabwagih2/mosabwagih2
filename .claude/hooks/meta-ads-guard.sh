@@ -21,8 +21,15 @@ BS11_MAX_BUDGET=500000   # 5,000 EGP
 # Test campaign objects that may only be paused (the ads).
 TEST_PAUSABLE_IDS="120249762322260590 120249762322490590 120249762322660590 120249762653560590 120249762654030590 120249762654330590 120249762655430590 120249762657330590"
 
+# Winners ABO campaign (2026-10-05): same budget/status rules as the creative tests.
+WINNERS_CAMPAIGN_ID="120249785766860590"
+WINNERS_ADSET_IDS="120249785768700590 120249785773840590 120249785776690590 120249785777670590 120249785778950590 120249785803760590 120249785804630590 120249785894690590"
+WINNERS_AD_IDS="120249785772500590 120249785889560590 120249785890310590 120249785891390590 120249785892160590 120249785892800590 120249785894000590 120249785895650590"
+# Empty ad sets the account owner asked to delete (W03 and both Zainab ad sets).
+DELETABLE_ADSET_IDS="120249785775160590 120249785785850590 120249785805550590"
+
 # Objects of all managed campaigns: the only ones that may be activated.
-ACTIVATABLE_IDS="120249758271140590 120249758274010590 120249758275290590 120249758275550590 120249758275710590 120249758276000590 $TEST_CAMPAIGN_IDS $TEST_ADSET_IDS $TEST_PAUSABLE_IDS"
+ACTIVATABLE_IDS="120249758271140590 120249758274010590 120249758275290590 120249758275550590 120249758275710590 120249758276000590 $TEST_CAMPAIGN_IDS $TEST_ADSET_IDS $TEST_PAUSABLE_IDS $WINNERS_CAMPAIGN_ID $WINNERS_ADSET_IDS $WINNERS_AD_IDS"
 
 input="$(cat)"
 tool="$(jq -r '.tool_name // ""' <<<"$input")"
@@ -43,8 +50,14 @@ case "$tool" in
     elif [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$TEST_ADSET_IDS"; then
       min=$TEST_MIN_BUDGET; max=$TEST_MAX_BUDGET; budget_allowed=1
       [[ "$entity_id" == "$BS11_ADSET_ID" ]] && max=$BS11_MAX_BUDGET
-    elif [[ "$entity_type" == "ad" ]] && in_list "$entity_id" "$TEST_PAUSABLE_IDS"; then
+    elif [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$WINNERS_ADSET_IDS"; then
+      min=$TEST_MIN_BUDGET; max=$TEST_MAX_BUDGET; budget_allowed=1
+    elif [[ "$entity_type" == "ad" ]] && in_list "$entity_id" "$TEST_PAUSABLE_IDS $WINNERS_AD_IDS"; then
       budget_allowed=0
+    elif [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$DELETABLE_ADSET_IDS"; then
+      [[ "$(jq -c '.tool_input.fields | if type == "string" then fromjson else . end' <<<"$input" 2>/dev/null)" == '{"status":"DELETED"}' ]] \
+        || deny "Meta guard: these ad sets may only be deleted."
+      exit 0
     else
       deny "Meta guard: updates are allowed only on the managed Pump & Punish and creative-test objects."
     fi
