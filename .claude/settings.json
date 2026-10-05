@@ -5,6 +5,9 @@
       "mcp__Meta_Ads__ads_account_get_activity_logs",
       "mcp__Meta_Ads__ads_update_entity",
       "mcp__Meta_Ads__ads_activate_entity"
+    ],
+    "deny": [
+      "mcp__bosta"
     ]
   },
   "hooks": {
