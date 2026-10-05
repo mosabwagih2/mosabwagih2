@@ -67,6 +67,8 @@ case "$tool" in
     allowed='["daily_budget", "status"]'
     # Test ad sets may also have their start time moved.
     [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$TEST_ADSET_IDS" && allowed='["daily_budget", "status", "start_time"]'
+    # Winners ad sets may also have their placements edited (WhatsApp marketing messages off).
+    [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$WINNERS_ADSET_IDS" && allowed='["daily_budget", "status", "targeting"]'
     extra="$(jq -r --argjson allowed "$allowed" 'keys - $allowed | join(",")' <<<"$fields")"
     [[ -z "$extra" ]] || deny "Meta guard: only $allowed may change (got: $extra)."
 
