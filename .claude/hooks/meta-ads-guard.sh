@@ -55,6 +55,8 @@ case "$tool" in
     elif [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$TEST_ADSET_IDS"; then
       min=$TEST_MIN_BUDGET; max=$TEST_MAX_BUDGET; budget_allowed=1
       [[ "$entity_id" == "$BS11_ADSET_ID" ]] && max=$BS11_MAX_BUDGET
+      # BS12 punished below the test floor on the account owner's request (2026-10-07).
+      [[ "$entity_id" == "120249762652320590" ]] && min=30000
     elif [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$WINNERS_ADSET_IDS"; then
       min=$TEST_MIN_BUDGET; max=$TEST_MAX_BUDGET; budget_allowed=1
     elif [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$DARA_ADSET_IDS"; then
