@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Guard for the managed Meta Ads campaigns: Meta Ads write tools are pre-approved
+# in .claude/settings.json so the scheduled checks can run unattended. This hook
+# narrows that approval to the managed objects and to budget/status changes only.
+set -euo pipefail
+
+# Pump & Punish: CBO, so only the campaign budget moves.
+CAMPAIGN_ID="120249758271140590"
+MIN_BUDGET=100000     # 1,000 EGP in piasters
+MAX_BUDGET=10000000   # 100,000 EGP in piasters
+
+# Creative tests (Bundle 30, Best-selling bundle): ABO, so each ad set budget
+# moves, within a tighter cap.
+TEST_CAMPAIGN_IDS="120249762316840590 120249762646600590"
+TEST_ADSET_IDS="120249762318740590 120249762319330590 120249762320090590 120249762649160590 120249762650720590 120249762651310590 120249762652320590 120249762652900590"
+TEST_MIN_BUDGET=40000    # 400 EGP
+TEST_MAX_BUDGET=200000   # 2,000 EGP
+# BS11 was raised past the test cap on the account owner's request.
+BS11_ADSET_ID="120249762651310590"
+BS11_MAX_BUDGET=500000   # 5,000 EGP
+# Test campaign objects that may only be paused (the ads).
+TEST_PAUSABLE_IDS="120249762322260590 120249762322490590 120249762322660590 120249762653560590 120249762654030590 120249762654330590 120249762655430590 120249762657330590"
+
+# Winners ABO campaign (2026-10-05): same budget/status rules as the creative tests.
+WINNERS_CAMPAIGN_ID="120249785766860590"
+WINNERS_ADSET_IDS="120249785768700590 120249785773840590 120249785776690590 120249785777670590 120249785778950590 120249785803760590 120249785804630590 120249785894690590"
+WINNERS_AD_IDS="120249785772500590 120249785889560590 120249785890310590 120249785891390590 120249785892160590 120249785892800590 120249785894000590 120249785895650590"
+# Dara Denney ABO campaign (2026-10-07): bundle 5 vs bundle 3, 300 EGP per ad set.
+DARA_CAMPAIGN_ID="120249803273360590"
+DARA_ADSET_IDS="120249803277500590 120249803280610590 120249803281890590 120249803282690590 120249803283570590 120249803284830590"
+DARA_AD_IDS="120249803445220590 120249803445630590 120249803445830590 120249803446150590 120249803446670590 120249803447320590"
+DARA_MIN_BUDGET=30000    # 300 EGP
+# Empty ad sets the account owner asked to delete (W03 and both Zainab ad sets).
+DELETABLE_ADSET_IDS="120249785775160590 120249785785850590 120249785805550590"
+
+# Objects of all managed campaigns: the only ones that may be activated.
+ACTIVATABLE_IDS="120249758271140590 120249758274010590 120249758275290590 120249758275550590 120249758275710590 120249758276000590 $TEST_CAMPAIGN_IDS $TEST_ADSET_IDS $TEST_PAUSABLE_IDS $WINNERS_CAMPAIGN_ID $WINNERS_ADSET_IDS $WINNERS_AD_IDS $DARA_CAMPAIGN_ID $DARA_ADSET_IDS $DARA_AD_IDS"
+
+input="$(cat)"
+tool="$(jq -r '.tool_name // ""' <<<"$input")"
+
+deny() {
+  jq -n --arg reason "$1" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $reason}}'
+  exit 0
+}
+
+in_list() { [[ " $2 " == *" $1 "* ]]; }
+
+case "$tool" in
+  mcp__Meta_Ads__ads_update_entity)
+    entity_id="$(jq -r '.tool_input.entity_id // ""' <<<"$input")"
+    entity_type="$(jq -r '.tool_input.entity_type // ""' <<<"$input")"
+    if [[ "$entity_id" == "$CAMPAIGN_ID" && "$entity_type" == "campaign" ]]; then
+      min=$MIN_BUDGET; max=$MAX_BUDGET; budget_allowed=1
+    elif [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$TEST_ADSET_IDS"; then
+      min=$TEST_MIN_BUDGET; max=$TEST_MAX_BUDGET; budget_allowed=1
+      [[ "$entity_id" == "$BS11_ADSET_ID" ]] && max=$BS11_MAX_BUDGET
+      # BS12 punished below the test floor on the account owner's request (2026-10-07).
+      [[ "$entity_id" == "120249762652320590" ]] && min=30000
+    elif [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$WINNERS_ADSET_IDS"; then
+      min=$TEST_MIN_BUDGET; max=$TEST_MAX_BUDGET; budget_allowed=1
+    elif [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$DARA_ADSET_IDS"; then
+      min=$DARA_MIN_BUDGET; max=$TEST_MAX_BUDGET; budget_allowed=1
+    elif [[ "$entity_type" == "ad" ]] && in_list "$entity_id" "$TEST_PAUSABLE_IDS $WINNERS_AD_IDS $DARA_AD_IDS"; then
+      budget_allowed=0
+    elif [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$DELETABLE_ADSET_IDS"; then
+      [[ "$(jq -c '.tool_input.fields | if type == "string" then fromjson else . end' <<<"$input" 2>/dev/null)" == '{"status":"DELETED"}' ]] \
+        || deny "Meta guard: these ad sets may only be deleted."
+      exit 0
+    else
+      deny "Meta guard: updates are allowed only on the managed Pump & Punish and creative-test objects."
+    fi
+
+    fields="$(jq -c '.tool_input.fields | if type == "string" then fromjson else . end' <<<"$input" 2>/dev/null)" \
+      || deny "Meta guard: fields is not valid JSON."
+    allowed='["daily_budget", "status"]'
+    # Test ad sets may also have their start time moved.
+    [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$TEST_ADSET_IDS" && allowed='["daily_budget", "status", "start_time"]'
+    # Winners ad sets may also have their placements edited (WhatsApp marketing messages off).
+    [[ "$entity_type" == "ad_set" ]] && in_list "$entity_id" "$WINNERS_ADSET_IDS" && allowed='["daily_budget", "status", "targeting"]'
+    extra="$(jq -r --argjson allowed "$allowed" 'keys - $allowed | join(",")' <<<"$fields")"
+    [[ -z "$extra" ]] || deny "Meta guard: only $allowed may change (got: $extra)."
+
+    status="$(jq -r '.status // ""' <<<"$fields")"
+    [[ -z "$status" || "$status" == "PAUSED" ]] \
+      || deny "Meta guard: status may only be set to PAUSED (got: $status)."
+
+    if jq -e 'has("daily_budget")' <<<"$fields" >/dev/null; then
+      (( budget_allowed )) || deny "Meta guard: ads have no budget to change."
+      budget="$(jq -r '.daily_budget' <<<"$fields")"
+      [[ "$budget" =~ ^[0-9]+$ ]] || deny "Meta guard: daily_budget must be an integer in piasters."
+      (( budget >= min && budget <= max )) \
+        || deny "Meta guard: daily_budget $budget is outside $min..$max for $entity_id."
+    fi
+    ;;
+  mcp__Meta_Ads__ads_activate_entity)
+    ids="$(jq -r '[.tool_input.entity_id] + (.tool_input.object_ids // []) | map(select(. != null)) | .[]' <<<"$input")"
+    for id in $ids; do
+      in_list "$id" "$ACTIVATABLE_IDS" \
+        || deny "Meta guard: activation is allowed only for the managed campaign objects (got: $id)."
+    done
+    ;;
+esac
+exit 0
